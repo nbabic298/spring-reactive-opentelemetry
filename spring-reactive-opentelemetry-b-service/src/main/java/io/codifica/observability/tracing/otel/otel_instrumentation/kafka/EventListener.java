@@ -8,20 +8,26 @@ import io.codifica.observability.tracing.otel.otel_instrumentation.http.HttpRequ
 import io.codifica.observability.tracing.otel.otel_instrumentation.kafka.support.GenericEvent;
 import io.micrometer.observation.ObservationRegistry;
 import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
 import io.opentelemetry.context.propagation.TextMapGetter;
 import io.opentelemetry.context.propagation.TextMapPropagator;
+import io.opentelemetry.instrumentation.reactor.v3_1.ContextPropagationOperator;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.header.Header;
+import org.apache.kafka.common.header.Headers;
 import org.apache.kafka.common.serialization.IntegerDeserializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
+import reactor.core.publisher.Mono;
 import reactor.kafka.receiver.KafkaReceiver;
 import reactor.kafka.receiver.ReceiverOptions;
+import reactor.kafka.receiver.ReceiverRecord;
 
 import java.util.*;
 
@@ -35,6 +41,7 @@ public class EventListener implements InitializingBean {
 
     private final ObjectMapper objectMapper;
     private final HttpRequester httpRequester;
+    private final OpenTelemetry openTelemetry;
     private final KafkaProperties kafkaProperties;
     private final ObservationRegistry observationRegistry;
 
@@ -58,26 +65,25 @@ public class EventListener implements InitializingBean {
                     startListeningForEvents(createEventReceiver());
                 })
                 .flatMap(consumerRecord -> {
-                    // Extract context from Kafka headers
-                    Context otelContext = extractContextFromHeaders(consumerRecord.headers());
-                    return reactor.core.publisher.Mono.deferContextual(ctx -> {
-                        // Merge OpenTelemetry context with Reactor context
-                        return reactor.core.publisher.Mono.just(consumerRecord)
-                                .contextWrite(Context.of(otelContext));
-                    });
-                })
-                .subscribe(consumerRecord -> {
                     log.debug("Received record on topic {} in partition {} with offset {} and value: [{}]",
                             consumerRecord.topic(), consumerRecord.partition(), consumerRecord.offset(), consumerRecord.value());
 
-                    try {
+                    Context extractedContext = getExtractedContext(consumerRecord);
 
-                        httpRequester.sendRequest(objectMapper.readValue(consumerRecord.value(), GenericEvent.class))
-                                .doOnError(error -> log.error("Error when sending event via http: ", error))
-                                .subscribe();
-                    } catch (JsonProcessingException e) {
-                        throw new UnparsableException(e.getMessage());
+                    try (Scope scope = extractedContext.makeCurrent()) {
+
+                        try {
+                            Mono<ReceiverRecord<Integer, String>> returnRecord = httpRequester.sendRequest(objectMapper.readValue(consumerRecord.value(), GenericEvent.class))
+                                    .doOnError(error -> log.error("Error when sending event via http: ", error))
+                                    .thenReturn(consumerRecord);
+
+                            return ContextPropagationOperator.runWithContext(returnRecord, io.opentelemetry.context.Context.current());
+                        } catch (JsonProcessingException e) {
+                            throw new UnparsableException(e.getMessage());
+                        }
                     }
+                })
+                .subscribe(consumerRecord -> {
 
                     consumerRecord.receiverOffset().acknowledge();
 
@@ -105,25 +111,23 @@ public class EventListener implements InitializingBean {
         return ReceiverOptions.<Integer, String>create(props).withObservation(observationRegistry);
     }
 
-    private Context extractContextFromHeaders(Iterable<org.apache.kafka.common.header.Header> headers) {
-        TextMapPropagator propagator = GlobalOpenTelemetry.getPropagators().getTextMapPropagator();
-        TextMapGetter<Iterable<Header>> getter = new TextMapGetter<>() {
-            @Override
-            public Iterable<org.apache.kafka.common.header.Header> keys(Iterable<org.apache.kafka.common.header.Header> carrier) {
-                return carrier;
-            }
-
-            @Override
-            public String get(Iterable<org.apache.kafka.common.header.Header> carrier, String key) {
-                for (org.apache.kafka.common.header.Header header : carrier) {
-                    if (header.key().equals(key)) {
-                        return new String(header.value());
+    private Context getExtractedContext(ReceiverRecord<Integer, String> consumerRecord) {
+        return openTelemetry.getPropagators().getTextMapPropagator()
+                .extract(Context.current(), consumerRecord.headers(), new TextMapGetter<>() {
+                    @Override
+                    public Iterable<String> keys(Headers carrier) {
+                        return Arrays.stream(carrier.toArray()).map(Header::key).toList();
                     }
-                }
-                return null;
-            }
-        };
-        return propagator.extract(Context.current(), headers, getter);
+
+                    @Override
+                    public String get(Headers carrier, String key) {
+                        if (carrier.lastHeader(key) != null) {
+                            return new String(carrier.lastHeader(key).value());
+                        } else {
+                            return null;
+                        }
+                    }
+                });
     }
 
 }

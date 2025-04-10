@@ -1,6 +1,9 @@
+server:
+  port: 8081
+
 spring:
   application:
-  name: otel-instrumentation
+  name: otel-instrumentation-a
   r2dbc:
     url: r2dbc:pool:postgresql://localhost:5424/alarms
     username: alarms
@@ -17,8 +20,7 @@ spring:
 
 kafka:
   bootstrapServers: localhost:29092
-  consumerGroupId: otel-instrumentation-group
-  consumerTopic: test.events
+  producerTopic: test.events
 
 otel:
   traces:
@@ -27,16 +29,8 @@ otel:
     exporter: none
   logs:
     exporter: none
-  instrumentation:
-    micrometer:
-      enabled: true
-http:
-  baseUrl: http://localhost:8081
 
 logging:
   level:
     io:
       codifica: DEBUG
-#      micrometer:
-#        tracing: DEBUG
-#      opentelemetry: DEBUG

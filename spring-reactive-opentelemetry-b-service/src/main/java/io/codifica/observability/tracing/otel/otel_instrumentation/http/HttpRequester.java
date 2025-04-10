@@ -2,6 +2,7 @@ package io.codifica.observability.tracing.otel.otel_instrumentation.http;
 
 import io.codifica.observability.tracing.otel.otel_instrumentation.kafka.support.GenericEvent;
 import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.context.Context;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -23,6 +24,7 @@ public class HttpRequester {
 
     public Mono<Void> sendRequest(GenericEvent payload) {
         log.debug("Sending HTTP request with payload: {}", payload);
+
         return webClient.post()
                 .uri("/v1/endpoint")
                 .header("Content-Type", "application/json")

@@ -1,6 +1,5 @@
 package io.codifica.observability.tracing.otel.otel_instrumentation;
 
-import io.opentelemetry.instrumentation.reactor.v3_1.ContextPropagationOperator;
 import jakarta.annotation.PostConstruct;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -16,7 +15,6 @@ public class OtelInstrumentationApplication {
 	@PostConstruct
 	public void init() {
 		Hooks.enableAutomaticContextPropagation();
-		ContextPropagationOperator.create().registerOnEachOperator();
 	}
 
 }

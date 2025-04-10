@@ -28,7 +28,6 @@ dependencies {
 //	implementation 'name.nkonev.r2dbc-migrate:r2dbc-migrate-spring-boot-starter:3.2.0'
 	implementation 'io.micrometer:micrometer-tracing-bridge-otel:1.4.4'
 	implementation 'io.micrometer:context-propagation:1.1.2'
-	implementation 'io.opentelemetry.instrumentation:opentelemetry-reactor-3.1:2.14.0-alpha'
 	implementation("io.opentelemetry.instrumentation:opentelemetry-spring-boot-starter")
 	runtimeOnly 'io.opentelemetry.instrumentation:opentelemetry-logback-mdc-1.0:2.14.0-alpha'
 	implementation 'io.opentelemetry.instrumentation:opentelemetry-r2dbc-1.0:2.14.0-alpha'
